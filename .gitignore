@@ -1,0 +1,12 @@
+# This release repository intentionally tracks only the core program.
+*
+!.gitignore
+!README.md
+!requirements.txt
+!gil_tool.py
+!resize_image.py
+!提瓦特打印机-封面.png
+!gil_map/
+!gil_map/模板.gil
+!qxy_gil/
+!qxy_gil/*.py
