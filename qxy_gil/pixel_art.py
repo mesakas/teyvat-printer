@@ -482,6 +482,7 @@ def image_to_decoration_groups(
     z: float | None = None,
     decoration_rotation: Vec3 | None = None,
     origin: Vec3 | None = None,
+    parent_scale: Vec3 | None = None,
     layout: str = "tiled",
     max_per_parent: int = 999,
     max_decorations: int = 10_000,
@@ -497,8 +498,11 @@ def image_to_decoration_groups(
     as the desired world-space centre of the bottom-most, then left-most,
     visible decoration.  ``batched`` creates another co-located parent after
     ``max_per_parent`` decorations, while ``single-parent`` keeps every
-    decoration in one experimental parent.  Decoration-local coordinates
-    retain the captured centred coordinate convention in every layout.
+    decoration in one experimental parent.  ``parent_scale`` is applied to
+    every generated parent; group positions account for that scale so the
+    requested origin remains a stable world-space anchor.  Decoration-local
+    coordinates retain the captured centred coordinate convention in every
+    layout.
     """
 
     if asset_id <= 0:
@@ -522,6 +526,17 @@ def image_to_decoration_groups(
         for value in resolved_origin.as_list()
     ):
         raise GilError("origin coordinates must be finite")
+    resolved_parent_scale = (
+        Vec3(1.0, 1.0, 1.0) if parent_scale is None else parent_scale
+    )
+    try:
+        parent_scale_values = resolved_parent_scale.as_list()
+    except (AttributeError, TypeError) as exc:
+        raise GilError("parent scale must contain three numbers") from exc
+    if any(not math.isfinite(value) for value in parent_scale_values):
+        raise GilError("parent scale coordinates must be finite")
+    if any(value <= 0 for value in parent_scale_values):
+        raise GilError("parent scale coordinates must be positive")
     if not 0 <= alpha_threshold <= 254:
         raise GilError("alpha threshold must be in the range 0..254")
     if max_decorations <= 0:
@@ -616,9 +631,15 @@ def image_to_decoration_groups(
 
         anchor_local = single_specs[anchor_index].position
         parent_position = Vec3(
-            _stable_float(resolved_origin.x - anchor_local.x),
-            _stable_float(resolved_origin.y - anchor_local.y),
-            _stable_float(resolved_origin.z - anchor_local.z),
+            _stable_float(
+                resolved_origin.x - resolved_parent_scale.x * anchor_local.x
+            ),
+            _stable_float(
+                resolved_origin.y - resolved_parent_scale.y * anchor_local.y
+            ),
+            _stable_float(
+                resolved_origin.z - resolved_parent_scale.z * anchor_local.z
+            ),
         )
         group_size = (
             len(single_specs)
@@ -637,6 +658,7 @@ def image_to_decoration_groups(
                     decorations=batch_specs,
                     tile_row=0,
                     tile_column=batch_index,
+                    scale=resolved_parent_scale,
                 )
             )
             tile_summaries.append(
@@ -655,9 +677,13 @@ def image_to_decoration_groups(
         anchor_mode = "bottom-left-decoration"
         summary_parent_position: list[float] | None = parent_position.as_list()
         world_bounds_formula = {
-            "x": "parentX+((W-1)/2-rectangleCenterColumn)*pixelSize",
-            "y": "parentY+0.5+((H-1)/2-rectangleCenterRow)*pixelSize",
-            "z": f"parentZ+{default_z_formula}" if z is None else "parentZ+explicit",
+            "x": "parentX+parentScaleX*((W-1)/2-rectangleCenterColumn)*pixelSize",
+            "y": "parentY+parentScaleY*(0.5+((H-1)/2-rectangleCenterRow)*pixelSize)",
+            "z": (
+                f"parentZ+parentScaleZ*({default_z_formula})"
+                if z is None
+                else "parentZ+parentScaleZ*explicit"
+            ),
         }
         if progress_callback is not None:
             progress_callback(progress_total, progress_total)
@@ -706,15 +732,21 @@ def image_to_decoration_groups(
                 parent_position = Vec3(
                     _stable_float(
                         resolved_origin.x
-                        + width_px * pixel_size / 2.0
-                        - 0.5
-                        - tile_column * tile_size * pixel_size
+                        + resolved_parent_scale.x
+                        * (
+                            width_px * pixel_size / 2.0
+                            - 0.5
+                            - tile_column * tile_size * pixel_size
+                        )
                     ),
                     _stable_float(
                         resolved_origin.y
-                        + 0.5
-                        - height_px * pixel_size / 2.0
-                        + tile_row * tile_size * pixel_size
+                        + resolved_parent_scale.y
+                        * (
+                            0.5
+                            - height_px * pixel_size / 2.0
+                            + tile_row * tile_size * pixel_size
+                        )
                     ),
                     _stable_float(resolved_origin.z),
                 )
@@ -755,6 +787,7 @@ def image_to_decoration_groups(
                         decorations=tuple(tile_specs),
                         tile_row=tile_row,
                         tile_column=tile_column,
+                        scale=resolved_parent_scale,
                     )
                 )
                 tile_summaries.append(
@@ -781,9 +814,13 @@ def image_to_decoration_groups(
         anchor_mode = "center-reference"
         summary_parent_position = None
         world_bounds_formula = {
-            "x": "originX+((W-1)/2-column)*pixelSize",
-            "y": "originY+0.5+((H-1)/2-row)*pixelSize",
-            "z": f"originZ+{default_z_formula}" if z is None else "originZ+explicit",
+            "x": "originX+parentScaleX*((W-1)/2-column)*pixelSize",
+            "y": "originY+parentScaleY*(0.5+((H-1)/2-row)*pixelSize)",
+            "z": (
+                f"originZ+parentScaleZ*({default_z_formula})"
+                if z is None
+                else "originZ+parentScaleZ*explicit"
+            ),
         }
 
     if not groups:
@@ -846,6 +883,11 @@ def image_to_decoration_groups(
             len(group.decorations) for group in groups
         ),
         "pixelSize": pixel_size,
+        "parentScale": resolved_parent_scale.as_list(),
+        "worldPixelSpacing": [
+            _stable_float(pixel_size * resolved_parent_scale.x),
+            _stable_float(pixel_size * resolved_parent_scale.y),
+        ],
         "z": local_z,
         "origin": resolved_origin.as_list(),
         "anchorMode": anchor_mode,

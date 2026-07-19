@@ -1,6 +1,6 @@
-# 提瓦特打印机（Teyvat Printer）
+# 提瓦特打印机 Teyvat-Printer
 
-![提瓦特打印机（Teyvat Printer）封面](./提瓦特打印机-封面.png)
+![提瓦特打印机 Teyvat Printer](./assets/效果图.png)
 
 本项目直接编辑导出的 `.gil` 副本，把图片批量转换为场景装饰物。生成结果快速且
 可检查，但仍属于实验性路线，必须在当前游戏版本中实际导入验证。
@@ -12,6 +12,29 @@ GIL 路线有三种场景布局。`map-image` 默认使用 `batched`：先在整
 空间分块方式。`--layout single-parent` 会把全部装饰物强制挂到
 一个父物体，只保留作危险实验，不推荐用于完整图片。
 
+## 透明图片与约 100 万像素效果
+
+工具支持带 Alpha 透明通道的 PNG、WebP 等图片。`map-image` 默认使用
+`--alpha-threshold 0`：图片缩放后的 Alpha 等于 0 的像素不会创建平面，Alpha
+大于 0 的像素才会参与扫描、同色合并和 GIL 生成。JPEG 没有透明通道，因此
+不能产生透明镂空区域。需要过滤接近透明的边缘时，可以提高阈值，例如使用
+`--alpha-threshold 16`；需要保持透明边缘的硬轮廓时，建议使用
+`--filter nearest`，因为 Lanczos 等插值可能产生 Alpha 大于 0 的半透明边缘像素。
+
+下面的导入效果使用 `--max-decorations 1000000` 作为自动尺寸预算。原图按比例采样
+为 `1277 × 783 = 999,891` 像素，也就是约 100 万像素的效果。这里的“100 万像素”
+指缩放后的采样网格，不代表创建了 100 万个平面：其中 `701,201` 个完全透明像素
+被跳过，剩余 `298,690` 个可见像素经过 256 色量化和同色矩形合并后，实际生成
+`169,154` 个平面。
+
+### 原始透明图片
+
+![魈透明背景原图](./assets/魈-透明背景.png)
+
+### 导入千星奇域后的透明效果
+
+![魈透明图片导入千星奇域后的效果](./assets/透明效果图.png)
+
 ## 安装
 
 需要 Python 3.10 或更高版本。
@@ -20,8 +43,8 @@ GIL 路线有三种场景布局。`map-image` 默认使用 `batched`：先在整
 python -m pip install -r requirements.txt
 ```
 
-仓库附带测试用的 `gil_map/模板.gil`，不包含原始图片或生成结果。请把命令中的
-`input.jpg` 替换成自己的本地图片。
+仓库附带测试用的 `gil_map/模板.gil` 和上述透明图片示例，但不包含生成后的 `.gil`
+文件。制作自己的图片时，请把命令中的示例图片路径替换为本地文件。
 
 ## 图片直接生成 GIL
 
@@ -166,6 +189,21 @@ python gil_tool.py validate --input ".\output.gil"
   该模式保留旧的 `--origin` 含义——它是整幅图坐标公式的基准，省略时继承模板中
   被替换父节点的世界位置，而不是自动把左下装饰物中心放在原点。
 
+需要修改父物体尺寸时，使用 `--parent-scale X Y Z`。它会把相同缩放写入原父物体
+以及所有自动克隆的父物体；默认值仍为 `(1,1,1)`。父级缩放会作用于整个装饰物
+层级，例如下面会把图片横向放大 2 倍、纵向放大 1.5 倍，同时保持
+`--origin` 指定的左下锚点不动：
+
+```powershell
+--parent-scale 2 1.5 1
+```
+
+`--pixel-size` 是装饰物的局部像素尺寸；设置父级缩放后，横向和纵向的实际像素间距
+分别是 `pixel-size × parent-scale-X` 与 `pixel-size × parent-scale-Y`。父物体的
+碰撞字段不会被删除。对于默认旋转为 `(90,0,0)` 的竖直平面，父级 X 控制图片宽度，
+Y 控制图片高度，Z 主要影响法线/厚度方向；缩放后的实际碰撞表现仍应在当前游戏
+版本中导入确认。
+
 用户实测发现，编辑器的装饰物列表最多只显示约 999 项；选中装有 3,319 个装饰物
 的唯一父物体时，也只有图像上半部分的装饰物被选中。继续对该父物体应用变换后，
 只有部分装饰物跟随，导入结果因而上下割裂。本地 protobuf 仍能通过结构和回读校验，
@@ -198,8 +236,8 @@ python gil_tool.py validate --input ".\output.gil"
   已占用的 ID；不会再使用全局最大 ID 跨入关卡实体编号段。
 - 工具不会为装饰平面创建或关闭独立碰撞，也不会修改父物体的原生碰撞字段；克隆
   父物体时会保留模板中的碰撞和其他未知组件。
-- 模板父级必须是零旋转、单位缩放；`NaN`、`Infinity`、重复 ID 和非正缩放会被
-  拒绝。
+- 模板父级必须是零旋转；生成父级默认使用单位缩放，也可以通过
+  `--parent-scale` 设置。`NaN`、`Infinity`、重复 ID 和非正缩放会被拒绝。
 - 校验只证明**文件结构候选正确**。第三方验证器明确没有执行游戏语义校验，
   因此最终仍必须由你在游戏内手动导入确认。
 - 默认批次布局会按 `--max-per-parent 999` 自动克隆同变换父物体。不要为了减少父物体
@@ -238,13 +276,13 @@ python resize_image.py input.png --width 24 --filter nearest
 ```powershell
 python gil_tool.py map-image `
   --input ".\gil_map\模板.gil" `
-  --image ".\input.jpg" `
-  --output ".\output.gil" `
-  --width 64 `
+  --image ".\assets\魈-透明背景.png" `
+  --output ".\gil_map\魈-透明背景.gil" `
   --filter lanczos `
   --colors 256 `
   --merge-same-color `
-  --max-decorations 100000 `
+  --alpha-threshold 0 `
+  --max-decorations 1000000 `
   --max-per-parent 999 `
   --pixel-size 0.1 `
   --origin 0 0 0 `

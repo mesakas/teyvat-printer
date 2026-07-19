@@ -334,6 +334,12 @@ def _print_map_summary(result: dict[str, Any]) -> None:
     if rotation is not None:
         rotation_text = ",".join(f"{value:g}" for value in rotation)
         scene_summary += f"，装饰旋转：({rotation_text})"
+    parent_scale = image.get("parentScale")
+    if parent_scale is not None and any(
+        abs(value - 1.0) > 1e-9 for value in parent_scale
+    ):
+        parent_scale_text = ",".join(f"{value:g}" for value in parent_scale)
+        scene_summary += f"，父级缩放：({parent_scale_text})"
     if layout in {"batched", "single-parent"}:
         anchor_position = image.get("anchorPosition")
         if anchor_position is not None:
@@ -526,6 +532,11 @@ def _handle_map_image(args: argparse.Namespace) -> int:
                 else Vec3(*args.decoration_rotation)
             ),
             origin=origin,
+            parent_scale=(
+                None
+                if args.parent_scale is None
+                else Vec3(*args.parent_scale)
+            ),
             layout=args.layout,
             max_per_parent=args.max_per_parent,
             max_decorations=args.max_decorations,
@@ -814,6 +825,16 @@ def _parser() -> argparse.ArgumentParser:
             "batched/single-parent: lower-left visible block centre "
             "(default: 0 0 0); "
             "tiled: image origin (default: selected parent position)"
+        ),
+    )
+    map_parser.add_argument(
+        "--parent-scale",
+        nargs=3,
+        type=float,
+        metavar=("X", "Y", "Z"),
+        help=(
+            "scale applied to every generated parent and its decoration hierarchy "
+            "(default: 1 1 1); the requested origin remains fixed"
         ),
     )
     map_parser.add_argument(

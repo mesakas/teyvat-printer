@@ -132,6 +132,7 @@ class DecorationGroupSpec:
     decorations: tuple[DecorationSpec, ...]
     tile_row: int = 0
     tile_column: int = 0
+    scale: Vec3 = Vec3(1.0, 1.0, 1.0)
 
 
 @dataclass(frozen=True)
@@ -515,9 +516,11 @@ def _patch_scene_parent(
     *,
     object_id: int,
     position: Vec3,
+    scale: Vec3,
     decoration_ids: Iterable[int],
 ) -> bytes:
     _require_finite_vec3(position, "parent position")
+    _require_finite_vec3(scale, "parent scale")
     entry_fields = _parse(entry, "scene parent patch")
     set_varint(entry_fields, 1, object_id)
     found = _component(entry_fields, 6, 1)
@@ -532,6 +535,11 @@ def _patch_scene_parent(
         transform_fields,
         1,
         _set_vec3_message(first_bytes(transform_fields, 1), position),
+    )
+    set_bytes(
+        transform_fields,
+        3,
+        _set_vec3_message(first_bytes(transform_fields, 3), scale),
     )
     set_bytes(component_fields, 11, rebuild_message(transform_fields))
     entry_fields[entry_index] = entry_fields[entry_index].with_value(
@@ -867,6 +875,7 @@ class GilDocument:
                 DecorationGroupSpec(
                     position=parent.transform.position,
                     decorations=tuple(specs),
+                    scale=parent.transform.scale,
                 )
             ],
             parent_id=parent.object_id,
@@ -886,6 +895,19 @@ class GilDocument:
             raise GilError("image produced no non-empty decoration tiles")
         for group_index, group in enumerate(groups):
             _require_finite_vec3(group.position, f"parent group[{group_index}].position")
+            _require_finite_vec3(group.scale, f"parent group[{group_index}].scale")
+            if any(value <= 0 for value in group.scale.as_list()):
+                raise GilError(
+                    f"parent group[{group_index}] scale components must be positive"
+                )
+            if any(
+                struct.unpack("<f", struct.pack("<f", value))[0] <= 0
+                for value in group.scale.as_list()
+            ):
+                raise GilError(
+                    f"parent group[{group_index}] scale is too small to remain "
+                    "positive in float32"
+                )
             if not group.decorations:
                 raise GilError(f"parent group[{group_index}] has no decorations")
             if _max_per_parent is not None and len(group.decorations) > _max_per_parent:
@@ -910,13 +932,6 @@ class GilDocument:
         ):
             raise GilError(
                 "target parent rotation must be (0, 0, 0) for tiled image placement"
-            )
-        if any(
-            abs(value - 1.0) > 1e-6
-            for value in parent.transform.scale.as_list()
-        ):
-            raise GilError(
-                "target parent scale must be (1, 1, 1) for tiled image placement"
             )
         linked = self.linked_decorations(parent)
         if not linked:
@@ -1064,6 +1079,7 @@ class GilDocument:
                     entry,
                     object_id=parent.object_id,
                     position=groups[0].position,
+                    scale=groups[0].scale,
                     decoration_ids=ids_by_parent[0],
                 )
             )
@@ -1078,6 +1094,7 @@ class GilDocument:
                         parent_entry,
                         object_id=object_id,
                         position=groups[group_index].position,
+                        scale=groups[group_index].scale,
                         decoration_ids=ids_by_parent[group_index],
                     ),
                 )
@@ -1123,6 +1140,17 @@ class GilDocument:
         for group_index, object_id in enumerate(parent_ids):
             generated_parent = generated_objects[object_id]
             expected_count = len(groups[group_index].decorations)
+            expected_scale = groups[group_index].scale
+            if any(
+                not math.isclose(actual, expected, rel_tol=1e-6, abs_tol=1e-6)
+                for actual, expected in zip(
+                    generated_parent.transform.scale.as_list(),
+                    expected_scale.as_list(),
+                )
+            ):
+                raise GilError(
+                    f"generated parent {object_id} scale does not match its group"
+                )
             if len(generated_parent.decoration_ids) != expected_count:
                 raise GilError(
                     f"generated parent {object_id} reference count does not match its tile"
