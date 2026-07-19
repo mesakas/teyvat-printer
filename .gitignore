@@ -1,0 +1,16 @@
+# This release repository intentionally tracks only the core program.
+*
+!.gitignore
+!README.md
+!LICENSE
+!requirements.txt
+!gil_tool.py
+!resize_image.py
+!assets/
+!assets/效果图.png
+!assets/魈-透明背景.png
+!assets/透明效果图.png
+!gil_map/
+!gil_map/模板.gil
+!qxy_gil/
+!qxy_gil/*.py
