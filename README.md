@@ -2,6 +2,100 @@
 
 ![提瓦特打印机 Teyvat Printer](./assets/效果图.png)
 
+## 命令与参数速查
+
+主命令格式：
+
+```powershell
+python gil_tool.py map-image --input ".\gil_map\模板.gil" --image ".\input.png" [参数]
+```
+
+> `map-image` 默认只执行 dry-run。只有添加 `--write` 才会写入文件；写入时必须指定
+> `--output`，对象或父物体数量发生变化时还必须添加 `--allow-count-change`。
+
+### 输入、输出与目标
+
+| 参数 | 是否必需 / 默认值 | 说明 |
+| --- | --- | --- |
+| `--input FILE` | 必需 | 输入的 `.gil` 原始模板。不要把已经生成的多父物体文件再次作为模板。 |
+| `--image FILE` | 必需 | 要转换的图片，支持 Pillow 可读取的 PNG、WebP、JPEG 等格式。 |
+| `--output FILE` | 写入时必需 | 新 `.gil` 文件的保存路径；不能与输入路径相同。 |
+| `--parent-id ID` | 自动识别 | 指定要替换的场景空模型父节点；模板中只有一个候选时可省略。 |
+| `--asset-id ID` | 模板常用资产 | 指定装饰物模型资产 ID。当前平面示例使用 `10009003`。 |
+
+### 图片采样与合并
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--width N` | 自动计算 | 目标像素宽度。只给宽或高时保持原图比例；宽高都省略时按 `--max-decorations` 自动计算。 |
+| `--height N` | 自动计算 | 目标像素高度；与 `--width` 同时指定时严格使用给定尺寸。 |
+| `--filter NAME` | `nearest` | 缩放算法：`nearest`、`box`、`bilinear`、`bicubic` 或 `lanczos`。 |
+| `--colors N` | 不量化 | 无抖动量化到 `2`～`256` 色，再生成装饰物。 |
+| `--merge-same-color` | 关闭 | 把相邻同色像素合并为更大的矩形，减少装饰物数量。 |
+| `--alpha-threshold N` | `0` | 跳过 Alpha 小于或等于该值的像素；适用于带透明通道的图片。 |
+| `--max-decorations N` | `10000` | 整幅图允许的装饰物总上限；省略宽高时也作为自动尺寸的像素预算。 |
+
+### 布局、尺寸与位置
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--layout MODE` | `batched` | 布局模式：`batched` 按数量分组；`tiled` 按空间分块；`single-parent` 强制使用单父物体，仅供低数量实验。 |
+| `--single-parent` | 关闭 | `--layout single-parent` 的快捷写法，与 `--layout` 互斥。 |
+| `--max-per-parent N` | `999` | `batched` 模式下每个父物体最多承载的装饰物数量。 |
+| `--tile-size N` | `10` | `tiled` 模式下每个父物体覆盖的空间像素边长，即默认 `10×10`。 |
+| `--pixel-size N` | `0.1` | 单个像素装饰物的局部尺寸。 |
+| `--z N` | 平面为 `0` | 显式指定装饰物的局部 Z 中心；其他模型默认使用 `0.5 - pixel-size / 2`。 |
+| `--decoration-rotation X Y Z` | 自动 | 所有生成装饰物的欧拉角旋转。资产 `10009003` 自动使用 `(90,0,0)`，其他资产保留模板旋转。 |
+| `--origin X Y Z` | 见说明 | `batched`/`single-parent` 中指定左下可见块中心，默认 `(0,0,0)`；`tiled` 中指定图片原点，默认继承所选父节点位置。 |
+| `--parent-scale X Y Z` | `(1,1,1)` | 设置所有生成父物体及其装饰物层级的缩放，并保持 `--origin` 锚点不动。 |
+
+### 写入、覆盖与报告
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--write` | 关闭 | 执行实际写入；省略时仅做 dry-run。 |
+| `--allow-count-change` | 关闭 | 确认允许在写入时增加或删除装饰物、父物体。 |
+| `--force` | 关闭 | 覆盖已有的输出文件；任何情况下都不会覆盖输入文件。 |
+| `--json` | 关闭 | 输出完整的机器可读 JSON 报告，而不是简短摘要；同时关闭进度条。 |
+| `--verbose-ids` | 关闭 | 配合 `--json` 输出全部复用、新增和移除的装饰物 ID。 |
+| `--no-progress` | 关闭 | 关闭交互式进度条。 |
+
+### 检查、校验与单独缩放图片
+
+| 命令 / 参数 | 说明 |
+| --- | --- |
+| `python gil_tool.py inspect --input FILE` | 检查 `.gil` 的结构和摘要；添加 `--verbose` 可列出每条装饰物记录。 |
+| `python gil_tool.py validate --input FILE` | 校验 `.gil` 的候选结构是否正确。 |
+| `python resize_image.py INPUT` | 单独生成缩放图片；`INPUT` 是输入图片路径。 |
+| `-s, --size WIDTHxHEIGHT` | 同时指定宽高，不能与 `--width` 或 `--height` 一起使用。 |
+| `-W, --width N` / `-H, --height N` | 指定目标宽度或高度；只指定一个时自动保持原图比例。 |
+| `-o, --output FILE` | 指定输出路径；省略时在输入图片旁生成 PNG。 |
+| `--mode MODE` | 尺寸模式：`stretch`（默认，拉伸）、`contain`（留边）或 `cover`（裁剪）。 |
+| `--filter NAME` | 缩放算法，默认为 `lanczos`。 |
+| `--background COLOR` | `contain` 模式的留边颜色，默认透明；例如 `#FFFFFF` 或 `#00000000`。 |
+| `--quality N` | JPEG/WebP 输出质量，范围 `1`～`100`，默认 `95`。 |
+
+所有命令均可添加 `-h` 或 `--help` 查看程序内置帮助。
+
+## 完整生成示例
+
+```powershell
+python gil_tool.py map-image `
+  --input ".\gil_map\模板.gil" `
+  --image ".\assets\魈-透明背景.png" `
+  --output ".\gil_map\魈-透明背景.gil" `
+  --filter lanczos `
+  --colors 256 `
+  --merge-same-color `
+  --alpha-threshold 0 `
+  --max-decorations 1000000 `
+  --max-per-parent 999 `
+  --pixel-size 0.1 `
+  --origin 0 0 0 `
+  --write `
+  --allow-count-change
+```
+
 本项目直接编辑导出的 `.gil` 副本，把图片批量转换为场景装饰物。生成结果快速且
 可检查，但仍属于实验性路线，必须在当前游戏版本中实际导入验证。
 
@@ -276,25 +370,6 @@ python resize_image.py input.png --width 24 --filter nearest
 ```
 
 命令会显示输出分辨率、总像素数和非完全透明的有效像素数。
-
-## 完整生成示例
-
-```powershell
-python gil_tool.py map-image `
-  --input ".\gil_map\模板.gil" `
-  --image ".\assets\魈-透明背景.png" `
-  --output ".\gil_map\魈-透明背景.gil" `
-  --filter lanczos `
-  --colors 256 `
-  --merge-same-color `
-  --alpha-threshold 0 `
-  --max-decorations 1000000 `
-  --max-per-parent 999 `
-  --pixel-size 0.1 `
-  --origin 0 0 0 `
-  --write `
-  --allow-count-change
-```
 
 ## 许可证
 
